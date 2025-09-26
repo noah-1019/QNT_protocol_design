@@ -1,0 +1,22 @@
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+
+
+# macOS
+.DS_Store
+
+# TensorBoard logs
+data/machine_learning_logs/
+data/machine_learning_agents/
+
+# Model files (you can uncomment these if you don't want to track models)
+# *.pkl
+# *.joblib
+# data/machine_learning_agents/
