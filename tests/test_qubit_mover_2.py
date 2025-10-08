@@ -120,6 +120,14 @@ def test_calculate_QFIM_given_theta():
     assert all(isinstance(entry, sp.Basic) for entry in result)
     assert sp.simplify(result - expected) == sp.zeros(3)
 
+def test_calculate_QCRB():
+    F=sp.Matrix([[2,0,0],[0,3,0],[0,0,4]])
+    result=qm2.calculate_QCRB(F)
+    print(result)
+    expected=1/3 + 1/4 + 1/2 # Trace of the inverse
+    assert sp.simplify(result - expected) == 0
+
+
 # ============================================================================
 # Test nodes_to_paths function
 # ============================================================================
@@ -158,12 +166,12 @@ def test_nodes_to_paths_valid_padding():
     assert result == expected
 
 # ============================================================================
-# Test moves_to_gates function
+# Test paths_to_gates function
 # ============================================================================
 
-def test_moves_to_gates_simple():
+def test_paths_to_gates_simple():
     moves=[1,4]
-    result=qm2.moves_to_gates(moves)
+    result=qm2.paths_to_gates(moves)
     result=sp.simplify(result)
 
 
@@ -176,9 +184,9 @@ def test_moves_to_gates_simple():
     assert result.shape == (2, 2)
     assert sp.simplify(result - expected) == sp.zeros(2, 2)
 
-def test_moves_to_gates_with_0():
+def test_paths_to_gates_with_0():
     moves=[1,0,4,0,0,0]
-    result=qm2.moves_to_gates(moves)
+    result=qm2.paths_to_gates(moves)
     result=sp.simplify(result)
 
 
@@ -191,12 +199,116 @@ def test_moves_to_gates_with_0():
     assert result.shape == (2, 2)
     assert sp.simplify(result - expected) == sp.zeros(2, 2)
 
-def test_moves_to_gates_moves_list():
+def test_paths_to_gates_moves_list():
     moves=[1,12,4,8,13]
     gates=qm2.nodes_to_paths(moves)
 
-    result=qm2.moves_to_gates(gates)
+    result=qm2.paths_to_gates(gates)
     #result=sp.simplify(result) # Too complex to simplify easily
 
     assert result.shape == (2, 2)
 
+# ============================================================================
+# Test Reward Calculation
+# ============================================================================
+
+def test_normalize_reward():
+    qcrb_values = [0.01, 0.1, 1, 10, 100,1000]
+    normalized = [qm2.normalize_reward(qcrb) for qcrb in qcrb_values]
+    
+    # Check that rewards are between 0 and 1
+    assert all(0 <= r <= 1 for r in normalized)
+    
+    # Check that lower QCRB gives higher reward
+    assert normalized == sorted(normalized, reverse=True)
+    
+   
+def test_reward_valid():
+    moves = [[2, 5, 10, 1, 13], [5, 5, 9, 1, 13], [9, 5, 9, 1, 13]]
+    result = qm2.reward(moves,[0.1,0.2,0.3])
+    assert isinstance(result, float)
+    assert -1 <= result <= 1  # Reward should be normalized between -1 and 1
+
+def test_reward_invalid_move():
+    moves = [[1, 13, 5, 9]]  # Measurement in the middle
+    result = qm2.reward(moves,[0.3,0.3,0.4])
+    assert result == -1  # Invalid move should return -1
+
+def test_reward_odd_hadamards():
+    moves = [[ 1, 5, 10, 13]]  # Odd number of Hadamards
+    result = qm2.reward(moves,[0.3,0.3,0.4])
+    assert result == -1  # Invalid due to odd Hadamards should return -1
+
+
+# ============================================================================
+# Test Numeric QFIM Calculation
+# ============================================================================
+
+def test_calculate_QFIM_numerical():
+    nodes=[1,6,11,9,13]# Simple case
+    #nodes = [1, 2,5,2,6,7,9,9,9,10,10,13]  # Example moves ending with measurement
+    
+    # Convert path to symbolic density matrix
+    paths = qm2.nodes_to_paths(nodes)
+    rho = qm2.paths_to_gates(paths)
+    
+    # Define parameter values for p1, p2, p3
+    params = [0.1, 0.2, 0.3]
+
+    # Calculate QFIM numerically
+    F = qm2.calculate_QFIM_numerical([rho], params,debug=True)
+    
+    
+
+
+    qfim2=qm2.calculate_QFIM([rho],thetas=params)
+    print(qfim2)
+
+    qfim_numpy=np.array(qfim2.evalf(), dtype=complex)
+
+    assert np.allclose(F, qfim_numpy, atol=1e-5), f"Numeric QFIM {F} does not match symbolic QFIM {qfim_numpy}"
+    assert F.shape == (3, 3)
+   
+def test_calculate_QFIM_numerical_multiple_rho():
+    nodes1=[1,6,11,9,13]# Simple case
+    nodes2=[4,5,10,1,13]# Simple case with Hadamard
+    #nodes = [1, 2,5,2,6,7,9,9,9,10,10,13]  # Example moves ending with measurement
+    
+    # Convert path to symbolic density matrix
+    paths1 = qm2.nodes_to_paths(nodes1)
+    rho1 = qm2.paths_to_gates(paths1)
+
+    paths2 = qm2.nodes_to_paths(nodes2)
+    rho2 = qm2.paths_to_gates(paths2)
+    
+    # Define parameter values for p1, p2, p3
+    params = [0.1, 0.2, 0.3]
+
+    # Calculate QFIM numerically
+    F = qm2.calculate_QFIM_numerical([rho1,rho2], params,debug=True)
+    
+    
+
+
+    qfim2=qm2.calculate_QFIM([rho1,rho2],thetas=params)
+    print(qfim2)
+
+    qfim_numpy=np.array(qfim2.evalf(), dtype=complex)
+
+    assert np.allclose(F, qfim_numpy, atol=1e-5), f"Numeric QFIM {F} does not match symbolic QFIM {qfim_numpy}"
+    assert F.shape == (3, 3)
+
+def test_calculate_QFIM_numerical_difficult():
+    nodes = [1, 2,5,2,6,7,9,9,9,10,10,13]  # Example moves ending with measurement
+    
+    # Convert path to symbolic density matrix
+    paths = qm2.nodes_to_paths(nodes)
+    rho = qm2.paths_to_gates(paths)
+    
+    # Define parameter values for p1, p2, p3
+    params = [0.1, 0.2, 0.3]
+
+    # Calculate QFIM numerically
+    F = qm2.calculate_QFIM_numerical([rho], params,debug=True)
+    
+    assert F.shape == (3, 3)
