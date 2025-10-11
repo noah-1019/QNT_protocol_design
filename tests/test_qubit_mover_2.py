@@ -312,3 +312,122 @@ def test_calculate_QFIM_numerical_difficult():
     F = qm2.calculate_QFIM_numerical([rho], params,debug=True)
     
     assert F.shape == (3, 3)
+
+
+# ============================================================================
+# Test Direct QFIM Calculation
+# ============================================================================
+def test_calculate_QFIM_direct():
+    nodes=[1,6,11,9,13]# Simple case
+    #nodes = [1, 2,5,2,6,7,9,9,9,10,10,13]  # Example moves ending with measurement
+    
+    # Convert path to symbolic density matrix
+    paths = qm2.nodes_to_paths(nodes)
+    rho = qm2.paths_to_gates_direct(paths, [0.1, 0.2, 0.3])
+    
+    # Define parameter values for p1, p2, p3
+    params = [0.1, 0.2, 0.3]
+
+    # Calculate QFIM numerically
+    F = qm2.calculate_QFIM_direct([rho])
+
+    rho_numeric=qm2.paths_to_gates(paths)
+    F_numeric=qm2.calculate_QFIM_numerical([rho_numeric], params)
+
+    assert np.allclose(F, F_numeric, atol=1e-5), f"Direct QFIM {F} does not match numeric QFIM {F_numeric}"
+    assert F.shape == (3, 3)
+
+def test_calculate_QFIM_direct_multiple_rho():
+    nodes1=[1,6,11,9,13]# Simple case
+    nodes2=[4,5,10,1,13]# Simple case with Hadamard
+    #nodes = [1, 2,5,2,6,7,9,9,9,10,10,13]  # Example moves ending with measurement
+    
+    # Convert path to symbolic density matrix
+    paths1 = qm2.nodes_to_paths(nodes1)
+    rho1 = qm2.paths_to_gates_direct(paths1, [0.1, 0.2, 0.3])
+
+    paths2 = qm2.nodes_to_paths(nodes2)
+    rho2 = qm2.paths_to_gates_direct(paths2, [0.1, 0.2, 0.3])
+    
+    # Define parameter values for p1, p2, p3
+    params = [0.1, 0.2, 0.3]
+
+    # Calculate QFIM numerically
+    F = qm2.calculate_QFIM_direct([rho1,rho2])
+
+    rho_numeric1=qm2.paths_to_gates(paths1)
+    rho_numeric2=qm2.paths_to_gates(paths2)
+    F_numeric=qm2.calculate_QFIM_numerical([rho_numeric1,rho_numeric2], params)
+
+    assert np.allclose(F, F_numeric, atol=1e-5), f"Direct QFIM {F} does not match numeric QFIM {F_numeric}"
+    assert F.shape == (3, 3)
+
+def test_calculate_QFIM_direct_difficult():
+    nodes = [1, 2,5,2,6,7,9,9,9,10,10,13]  # Example moves ending with measurement
+    
+    # Convert path to symbolic density matrix
+    paths = qm2.nodes_to_paths(nodes)
+    rho = qm2.paths_to_gates_direct(paths, [0.1, 0.2, 0.3])
+    
+    # Define parameter values for p1, p2, p3
+    params = [0.1, 0.2, 0.3]
+
+    # Calculate QFIM numerically
+    F = qm2.calculate_QFIM_direct([rho])
+    
+    assert F.shape == (3, 3)
+
+# ============================================================================
+# Test Reward Function with Numeric QFIM
+# ============================================================================
+
+def test_reward_numeric_valid():
+    moves = [[2, 5, 10, 1, 13], [5, 5, 9, 1, 13], [9, 5, 9, 1, 13]]
+    result = qm2.reward_numeric(moves,[0.1,0.2,0.3])
+    assert isinstance(result, float)
+    assert -1 <= result <= 1  # Reward should be normalized between -1 and 1
+
+def test_reward_numeric_invalid_move():
+    moves = [[1, 13, 5, 9]]  # Measurement in the middle
+    result = qm2.reward_numeric(moves,[0.3,0.3,0.4])
+    assert result == -1  # Invalid move should return -1
+
+def test_reward_numeric_odd_hadamards():
+    moves = [[ 1, 5, 10, 13]]  # Odd number of Hadamards
+    result = qm2.reward_numeric(moves,[0.3,0.3,0.4])
+    assert result == -1  # Invalid due to odd Hadamards should return -1
+
+def test_reward_numeric_difficult():
+    nodes=[[1, 2,5,2,6,7,9,9,9,10,10,13], [4,2,5,2,6,7,9,9,9,10,10,13], [7,2,5,2,6,7,9,9,9,10,10,13]]
+    reward=qm2.reward_numeric(nodes,[0.1,0.2,0.3])
+    assert isinstance(reward, float) or reward == -1  # Reward can be -1 for invalid moves
+    assert -1 <= reward <= 1  # Reward should be normalized between -1 and
+
+# ============================================================================
+# Test Reward Function with Direct QFIM
+# ============================================================================
+
+def test_reward_direct_valid():
+    moves = [[2, 5, 10, 1, 13], [5, 5, 9, 1, 13], [9, 5, 9, 1, 13]]
+    result = qm2.reward_direct(moves,[0.3,0.2,0.3])
+    assert isinstance(result, float)
+    assert -1 <= result <= 1  # Reward should be normalized between -1 and 1
+
+def test_reward_direct_invalid_move():
+    moves = [[1, 13, 5, 9]]  # Measurement in the middle
+    result = qm2.reward_direct(moves,[0.3,0.3,0.4])
+    assert result == -1  # Invalid move should return -1
+
+def test_reward_directc_odd_hadamards():
+    moves = [[ 1, 5, 10, 13]]  # Odd number of Hadamards
+    result = qm2.reward_direct(moves,[0.3,0.3,0.4])
+    assert result == -1  # Invalid due to odd Hadamards should return -1
+
+def test_reward_direct_difficult():
+    nodes=[[1, 2,5,2,6,7,9,9,9,10,10,13], [4,2,5,2,6,7,9,9,9,10,10,13], [7,2,5,2,6,7,9,9,9,10,10,13]]
+    reward=qm2.reward_direct(nodes,[0.4,0.2,0.3])
+    reward_numeric=qm2.reward_numeric(nodes,[0.4,0.2,0.3])
+    assert np.isclose(reward,reward_numeric, atol=1e-5)
+    assert isinstance(reward, float) or reward == -1  # Reward can be -1 for invalid moves
+    assert -1 <= reward <= 1  # Reward should be normalized between -1 and
+
