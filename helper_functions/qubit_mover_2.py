@@ -699,7 +699,6 @@ def remove_padding_13s(move_list):
     
     return result
 
-
 def nodes_to_paths(move_list: list[int],debug: bool=False):
     # Each element in the move list is an integer from 1 to 13
 
@@ -1125,3 +1124,115 @@ def reward_direct(
                                        sensitivity_power=sensitivity_power)
 
     return float(normalized_reward)
+
+
+# ============================================================================
+# Functions to observe enviornment
+# ============================================================================
+
+def choose_random_valid_move(params=[0.1,0.2,0.3]):
+
+    moves = [[], [], []]  # Three qubits
+    nodes=[1, 5, 9]  # Starting nodes for the three qubits
+    for i in range(3): # Add this loop to generate moves for each qubit
+        num_moves = np.random.randint(3, 5)  # Between 3 and 10 moves for each qubit
+        moves[i]= [random.choice(nodes) for _ in range(num_moves)]
+
+        # Add Hadamard gates
+        h_counter=0 # Counts the number of Hadamard gates added
+        for j in range(len(moves[i])-1):
+            hadamard_orientation=np.random.randint(0,4) # Randomly choose one of the 4 Hadamard orientations
+
+            if hadamard_orientation == 1 or hadamard_orientation == 2:
+                h_counter+=1
+            elif hadamard_orientation == 3:
+                h_counter+=2
+
+
+            moves[i][j]+=hadamard_orientation # Append the orientation to the node number
+
+        if h_counter % 2 == 1: # If there's an odd number of Hadamard gates, add one more at the end
+            moves[i].append(random.choice([2,6,10])) # Append a Hadamard gate at the end, each one of these moves is a hadamard gate plus a move.
+            h_counter+=1
+
+        # Ensure the last move is always a measurement
+        moves[i].append(13) # Finally, append the measurement operation
+
+        # paths=qm2.nodes_to_paths(moves[i])
+        # print("*"*50)
+        # print("Moves:", moves[i])
+        # print("Num Hadamardds:", h_counter)
+        # print("Paths: ", paths )
+        # print("Other H calculation: ",paths.count(4))
+        
+
+    reward=reward_numeric(moves, thetas=params)
+
+    
+
+    return reward
+
+def choose_random_valid_move_direct(params=[0.1,0.2,0.3]):
+
+    moves = [[], [], []]  # Three qubits
+    nodes=[1, 5, 9]  # Starting nodes for the three qubits
+    for i in range(3): # Add this loop to generate moves for each qubit
+        num_moves = np.random.randint(3, 5)  # Between 3 and 10 moves for each qubit
+        moves[i]= [random.choice(nodes) for _ in range(num_moves)]
+
+        # Add Hadamard gates
+        h_counter=0 # Counts the number of Hadamard gates added
+        for j in range(len(moves[i])-1):
+            hadamard_orientation=np.random.randint(0,4) # Randomly choose one of the 4 Hadamard orientations
+
+            if hadamard_orientation == 1 or hadamard_orientation == 2:
+                h_counter+=1
+            elif hadamard_orientation == 3:
+                h_counter+=2
+
+
+            moves[i][j]+=hadamard_orientation # Append the orientation to the node number
+
+        if h_counter % 2 == 1: # If there's an odd number of Hadamard gates, add one more at the end
+            moves[i].append(random.choice([2,6,10])) # Append a Hadamard gate at the end, each one of these moves is a hadamard gate plus a move.
+            h_counter+=1
+
+        # Ensure the last move is always a measurement
+        moves[i].append(13) # Finally, append the measurement operation
+
+        # paths=qm2.nodes_to_paths(moves[i])
+        # print("*"*50)
+        # print("Moves:", moves[i])
+        # print("Num Hadamardds:", h_counter)
+        # print("Paths: ", paths )
+        # print("Other H calculation: ",paths.count(4))
+        
+
+    reward=reward_direct(moves, thetas=params)
+
+    
+
+    return reward
+
+def plot_random_rewards_histogram(iterations,random:bool=True,params=None):
+
+
+    rewards=[]
+
+    if random==False and params is not None:
+        for _ in range(iterations):
+            rewards.append(choose_random_valid_move_direct(params = params))
+    elif random==True:
+        for _ in range(iterations):
+            rewards.append(choose_random_valid_move_direct(params = np.random.uniform(0, 0.5, size=3).tolist()))
+    else:
+        raise ValueError("If random is False, params must be provided.")
+    
+    
+    # Simple histogram
+    plt.hist(rewards, bins=30)
+    plt.xlabel('Rewards')
+    plt.ylabel('Frequency')
+    plt.title('Reward Distribution')
+    plt.show()
+
