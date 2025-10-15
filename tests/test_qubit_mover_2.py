@@ -165,6 +165,41 @@ def test_nodes_to_paths_valid_padding():
     result = qm2.nodes_to_paths(moves)
     assert result == expected
 
+# Test nodes to paths mapping function
+def test_nodes_to_paths_mapped():
+    list_of_moves=[
+    [1,4,1,4,2,4,2,13],   # Valid move
+    [1,13], # Too few moves 
+    [1,4,2,4,2], # No measurement
+    [1,4,2,13,4,2], # Measurement in middle and odd hadamard
+    [1,4,2,4,3,4,13], # Odd hadamards
+    [13,13,13,13,13,13] # All measurements
+    ]
+
+    fixed_moves=[
+        [0, 1, 0, 1, 4, 1, 4, 1, 0, 1, 0, 1, 4, 1, 4, 1, 4, 1, 0, 1, 4, 1, 4, 1, 4],
+        [0, 1, 0, 1, 0, 1, 0, 1, 0],
+        [0, 1, 0, 1, 4, 1, 4, 1, 4, 1, 0, 1, 4, 1, 4, 1, 4],
+        [0, 1, 0, 1, 4, 1, 4, 1, 4, 4],
+        [0, 1, 0, 1, 4, 1, 4, 1, 4, 1, 0, 1, 4, 1, 4, 1, 0, 1, 4, 1, 4, 4],
+        [0, 1, 0, 1, 0, 1, 0, 1, 0]
+    ]
+
+    for i,move in enumerate(list_of_moves):
+        fixed_move, issues = qm2.nodes_to_paths_mapped(move, debug=False)
+
+        assert fixed_move==fixed_moves[i]
+        assert isinstance(issues, dict)
+
+def test_nodes_to_paths_mapped_random():
+    for _ in range(100):
+        move = np.random.randint(1, 14, size=np.random.randint(1, 10)).tolist()
+        fixed_move, issues = qm2.nodes_to_paths_mapped(move, debug=False)
+        assert isinstance(fixed_move, list)
+        assert fixed_move != -1  # Should always return a valid move
+        assert isinstance(issues, dict)
+
+
 # ============================================================================
 # Test paths_to_gates function
 # ============================================================================
@@ -222,7 +257,6 @@ def test_normalize_reward():
     # Check that lower QCRB gives higher reward
     assert normalized == sorted(normalized, reverse=True)
     
-   
 def test_reward_valid():
     moves = [[2, 5, 10, 1, 13], [5, 5, 9, 1, 13], [9, 5, 9, 1, 13]]
     result = qm2.reward(moves,[0.1,0.2,0.3])
@@ -430,4 +464,12 @@ def test_reward_direct_difficult():
     assert np.isclose(reward,reward_numeric, atol=1e-5)
     assert isinstance(reward, float) or reward == -1  # Reward can be -1 for invalid moves
     assert -1 <= reward <= 1  # Reward should be normalized between -1 and
+
+def test_reward_direct_mapped():
+    for _ in range(100):
+        move = [np.random.randint(1, 14, size=np.random.randint(1, 10)).tolist() for i in range(3)]
+        
+        reward=qm2.reward_direct(node_lists=move, thetas=[0.3,0.3,0.4],mapped=True, mapped_penalty=0,debug=False)
+        assert reward != -1  # Should always return a valid reward
+        assert isinstance(reward, float)
 
