@@ -7,6 +7,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import helper_functions.qubit_mover_2 as qm2
 import helper_functions.enviornments as envs 
 
+# Parrallel processing libraries
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
 
 # numerical libraries
 import sympy as sp
@@ -26,7 +29,16 @@ from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import EvalCallback, StopTrainingOnRewardThreshold
 
 from stable_baselines3.common.callbacks import BaseCallback
+
+# Hyperparameter optimization libraries
 import optuna
+from optuna.samplers import TPESampler
+
+## Parameters for RL training and optimization
+num_trials=50 # Total number of hyperparameter trials
+num_jobs=5 # Number of parallel jobs to run (set to number of CPU cores minus one)
+num_optimization_epochs=1_000_000 # Total training epochs for each trial
+
 
 #from stable_baselines3.common.vec_env import VecNormaliz
 
@@ -220,7 +232,7 @@ class RollingAveragePlateauCallback(BaseCallback):
 # -------------------------------------------------------
 # Hyperparameter optimization with Optuna
 # -------------------------------------------------------
-
+# Optimization objective function
 def objective(trial):
     
 
@@ -265,7 +277,7 @@ def objective(trial):
 
         "stats_window_size": 100,
 
-        "total_timesteps": 200_000 # Total training timesteps lowered for faster sweeps
+        "total_timesteps": num_optimization_epochs # Total training timesteps lowered for faster sweeps
     }
 
     # Define callback parameters
@@ -287,148 +299,194 @@ def objective(trial):
         verbose=1
     )
 
+    try:
+        # Load in the custom environment
+        env=envs.QubitMoverEnv_2_Mapped() # Mapped version
 
-    # Load in the custom environment
-    env=envs.QubitMoverEnv_2_Mapped() # Mapped version
+
+        # Create the RL model
+        model = PPO(
+            policy=hyperparameters["policy"],
+            env=env,
+            learning_rate=hyperparameters["learning_rate"],
+            n_steps=hyperparameters["n_steps"],
+            batch_size=hyperparameters["batch_size"],
+            n_epochs=hyperparameters["n_epochs"],
+            gamma=hyperparameters["gamma"],
+            gae_lambda=hyperparameters["gae_lambda"],
+            clip_range=hyperparameters["clip_range"],
+            clip_range_vf=hyperparameters["clip_range_vf"],
+            normalize_advantage=hyperparameters["normalize_advantage"],
+            ent_coef=hyperparameters["ent_coef"],
+            vf_coef=hyperparameters["vf_coef"],
+            max_grad_norm=hyperparameters["max_grad_norm"],
+            use_sde=hyperparameters["use_sde"],
+            sde_sample_freq=hyperparameters["sde_sample_freq"],
+            target_kl=hyperparameters["target_kl"],
+            stats_window_size=hyperparameters["stats_window_size"],
+            verbose=0
+                            )
 
 
-    # Create the RL model
-    model = PPO(
-        policy=hyperparameters["policy"],
+        # Train the model
+        model.learn(total_timesteps=hyperparameters["total_timesteps"], callback=plateau_callback)
+
+
+        mean_reward = evaluate_model(model,env,n_eval_episodes=100,deterministic=False)
+
+        # Cleanup
+        env.close()
+        del model  # Free memory
+
+        print("\n")    
+        print("-"*50)
+        print(f"Trial {trial.number} completed: {mean_reward:.4f}")
+        print("-"*50)
+        print("\n")
+
+        return mean_reward
+    
+    except Exception as e:
+        if 'env' in locals():
+            env.close()
+            print("\n")    
+            print("-"*50)
+            print(f"Trial {trial.number} failed due to exception: {e}")
+            print("-"*50)
+            print("\n")
+        return -10.0
+
+
+# Parallel optimization function
+def run_parallel_optimization(n_trials=20, n_jobs=None):
+    """
+    Run hyperparameter optimization in parallel.
+    
+    Args:
+        n_trials: Total number of trials to run
+        n_jobs: Number of parallel processes (None = use all CPU cores)
+    """
+    if n_jobs is None:
+        n_jobs = multiprocessing.cpu_count() - 1  # Leave one core free
+    
+    print(f"Starting parallel hyperparameter optimization with {n_jobs} processes...")
+    print(f"Total trials: {n_trials}")
+    
+    # Create study with proper sampler
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=TPESampler(seed=42)  # For reproducible results
+    )
+    
+    # Run optimization in parallel
+    study.optimize(objective, n_trials=n_trials, n_jobs=n_jobs)
+    
+    return study
+
+
+
+if __name__ == "__main__":
+    # Ensure directories exist
+    os.makedirs("data/machine_learning_agents/agents_qubit_mover2/", exist_ok=True)
+    os.makedirs("data/machine_learning_logs/hyperparameter_logs/", exist_ok=True)
+    
+    # Run parallel optimization
+    study = run_parallel_optimization(n_trials=num_trials, n_jobs=num_jobs)  # Use 5 cores
+    
+    print("Optimization complete!")
+    print(f"Best trial: {study.best_trial.number}")
+    print(f"Best value: {study.best_value:.4f}")
+    print("Best params:")
+    for key, value in study.best_params.items():
+        print(f"  {key}: {value}")
+
+#-------------------------------------------------------
+# Retrain and save the best model
+#-------------------------------------------------------
+
+    # Retrain the best model and save it
+    print("\nRetraining best model...")
+    best_params = study.best_params
+
+    # Recreate best hyperparameters
+    best_hyperparameters = {
+        "policy": "MlpPolicy",
+        "learning_rate": best_params["learning_rate"],
+        "n_steps": best_params["n_steps"],
+        "batch_size": best_params["batch_size"],
+        "n_epochs": best_params["n_epochs"],
+        "gamma": best_params["gamma"],
+        "gae_lambda": best_params["gae_lambda"],
+        "clip_range": best_params["clip_range"],
+        "clip_range_vf": None,
+        "normalize_advantage": True,
+        "ent_coef": best_params["ent_coef"],
+        "vf_coef": best_params["vf_coef"],
+        "max_grad_norm": best_params["max_grad_norm"],
+        "use_sde": False,
+        "sde_sample_freq": -1,
+        "target_kl": None,
+        "stats_window_size": 100,
+        "total_timesteps": 1_000_000  # Train longer for final model
+    }
+
+    # Train final best model
+    env = envs.QubitMoverEnv_2_Mapped()
+    best_model = PPO(
+        policy=best_hyperparameters["policy"],
         env=env,
-        learning_rate=hyperparameters["learning_rate"],
-        n_steps=hyperparameters["n_steps"],
-        batch_size=hyperparameters["batch_size"],
-        n_epochs=hyperparameters["n_epochs"],
-        gamma=hyperparameters["gamma"],
-        gae_lambda=hyperparameters["gae_lambda"],
-        clip_range=hyperparameters["clip_range"],
-        clip_range_vf=hyperparameters["clip_range_vf"],
-        normalize_advantage=hyperparameters["normalize_advantage"],
-        ent_coef=hyperparameters["ent_coef"],
-        vf_coef=hyperparameters["vf_coef"],
-        max_grad_norm=hyperparameters["max_grad_norm"],
-        use_sde=hyperparameters["use_sde"],
-        sde_sample_freq=hyperparameters["sde_sample_freq"],
-        target_kl=hyperparameters["target_kl"],
-        stats_window_size=hyperparameters["stats_window_size"],
-        verbose=0,
+        learning_rate=best_hyperparameters["learning_rate"],
+        n_steps=best_hyperparameters["n_steps"],
+        batch_size=best_hyperparameters["batch_size"],
+        n_epochs=best_hyperparameters["n_epochs"],
+        gamma=best_hyperparameters["gamma"],
+        gae_lambda=best_hyperparameters["gae_lambda"],
+        clip_range=best_hyperparameters["clip_range"],
+        ent_coef=best_hyperparameters["ent_coef"],
+        vf_coef=best_hyperparameters["vf_coef"],
+        max_grad_norm=best_hyperparameters["max_grad_norm"],
+        verbose=1,
         tensorboard_log="data/machine_learning_logs/ppo_qubit_mover2_tensorboard/"
     )
 
+    plateau_callback = RollingAveragePlateauCallback(
+        window_size=20,
+        patience=20,
+        min_delta=0.005,
+        check_freq=2000,
+        verbose=1
+    )
 
-    # Train the model
-    model.learn(total_timesteps=hyperparameters["total_timesteps"], callback=plateau_callback)
+    best_model.learn(total_timesteps=best_hyperparameters["total_timesteps"], callback=plateau_callback)
 
+    # Save the final best model
+    final_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    final_model_path = f"data/machine_learning_agents/agents_qubit_mover2/ppo_qubit_mover2_agent_BEST_FINAL_{final_timestamp}"
+    best_model.save(final_model_path)
 
-    # Save the model -> only the best models get saved
-    mean_reward = evaluate_model(model,env,n_eval_episodes=100,deterministic=False)
+    # Final evaluation
+    final_mean_reward = evaluate_model(best_model, env, n_eval_episodes=100, deterministic=True)
 
-        
-    print(f"Trial {trial.number} completed: {mean_reward:.4f}")
-    return mean_reward
+    print(f"Final best model saved: {final_model_path}")
+    print(f"Final evaluation score: {final_mean_reward:.4f}")
 
+    # Save final experiment results
+    callback_params = {
+        "window_size": 20,
+        "patience": 20,
+        "min_delta": 0.005,
+        "check_freq": 2000,
+        "callback_type": "RollingAveragePlateauCallback"
+    }
 
+    final_metrics = {
+        "final_mean_reward": final_mean_reward,
+        "best_trial_number": study.best_trial.number,
+        "optimization_trials": len(study.trials),
+        "model_saved_path": final_model_path
+    }
 
-
-
-
-
-
-print("Starting hyperparameter optimization...")
-study = optuna.create_study(direction="maximize")
-study.optimize(objective, n_trials=2)# just two trials for testing
-
-print("Optimization complete!")
-print(f"Best trial: {study.best_trial.number}")
-print(f"Best value: {study.best_value:.4f}")
-print("Best params:")
-for key, value in study.best_params.items():
-    print(f"  {key}: {value}")
-
-# Retrain the best model and save it
-print("\nRetraining best model...")
-best_params = study.best_params
-
-# Recreate best hyperparameters
-best_hyperparameters = {
-    "policy": "MlpPolicy",
-    "learning_rate": best_params["learning_rate"],
-    "n_steps": best_params["n_steps"],
-    "batch_size": best_params["batch_size"],
-    "n_epochs": best_params["n_epochs"],
-    "gamma": best_params["gamma"],
-    "gae_lambda": best_params["gae_lambda"],
-    "clip_range": best_params["clip_range"],
-    "clip_range_vf": None,
-    "normalize_advantage": True,
-    "ent_coef": best_params["ent_coef"],
-    "vf_coef": best_params["vf_coef"],
-    "max_grad_norm": best_params["max_grad_norm"],
-    "use_sde": False,
-    "sde_sample_freq": -1,
-    "target_kl": None,
-    "stats_window_size": 100,
-    "total_timesteps": 1_000_000  # Train longer for final model
-}
-
-# Train final best model
-env = envs.QubitMoverEnv_2_Mapped()
-best_model = PPO(
-    policy=best_hyperparameters["policy"],
-    env=env,
-    learning_rate=best_hyperparameters["learning_rate"],
-    n_steps=best_hyperparameters["n_steps"],
-    batch_size=best_hyperparameters["batch_size"],
-    n_epochs=best_hyperparameters["n_epochs"],
-    gamma=best_hyperparameters["gamma"],
-    gae_lambda=best_hyperparameters["gae_lambda"],
-    clip_range=best_hyperparameters["clip_range"],
-    ent_coef=best_hyperparameters["ent_coef"],
-    vf_coef=best_hyperparameters["vf_coef"],
-    max_grad_norm=best_hyperparameters["max_grad_norm"],
-    verbose=1,
-    tensorboard_log="data/machine_learning_logs/ppo_qubit_mover2_tensorboard/"
-)
-
-plateau_callback = RollingAveragePlateauCallback(
-    window_size=20,
-    patience=20,
-    min_delta=0.005,
-    check_freq=2000,
-    verbose=1
-)
-
-best_model.learn(total_timesteps=best_hyperparameters["total_timesteps"], callback=plateau_callback)
-
-# Save the final best model
-final_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-final_model_path = f"data/machine_learning_agents/agents_qubit_mover2/ppo_qubit_mover2_agent_BEST_FINAL_{final_timestamp}"
-best_model.save(final_model_path)
-
-# Final evaluation
-final_mean_reward = evaluate_model(best_model, env, n_eval_episodes=100, deterministic=True)
-
-print(f"Final best model saved: {final_model_path}")
-print(f"Final evaluation score: {final_mean_reward:.4f}")
-
-# Save final experiment results
-callback_params = {
-    "window_size": 20,
-    "patience": 20,
-    "min_delta": 0.005,
-    "check_freq": 2000,
-    "callback_type": "RollingAveragePlateauCallback"
-}
-
-final_metrics = {
-    "final_mean_reward": final_mean_reward,
-    "best_trial_number": study.best_trial.number,
-    "optimization_trials": len(study.trials),
-    "model_saved_path": final_model_path
-}
-
-save_experiment_results(best_hyperparameters, callback_params, final_metrics)
+    save_experiment_results(best_hyperparameters, callback_params, final_metrics)
 
 
 
