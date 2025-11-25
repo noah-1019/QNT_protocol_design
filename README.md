@@ -28,6 +28,7 @@ cd QNT_protocol_design
 ```
 
 2. Create and activate a virtual environment:
+Make sure you are using Python 3.9 or higher.
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate

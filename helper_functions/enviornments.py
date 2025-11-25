@@ -11,6 +11,7 @@ from matplotlib import pyplot as plt
 current_dir = os.path.dirname(__file__)
 sys.path.append(current_dir)
 import qubit_mover_2 as qm2
+import qubit_mover_1 as qm1
 
 
 # ----------------------------------------------------------------------------------
@@ -275,3 +276,81 @@ def visualize_QubitMoverEnv_2_Mapped(iterations: int=100):
     plt.title('Reward Distribution')
     plt.show()
 
+
+class QubitMoverEnv1(gym.Env):
+    """
+    Custom Environment for the Qubit Mover RL agent.
+    - 3 qubits, each with a path of length 10
+    - Each step, the agent selects a node (1-3) or 0 (measure) for each qubit
+    - Episode ends after a fixed number of steps or when all qubits are measured
+    """
+    metadata = {"render_modes": ["human"], "render_fps": 4}
+
+    def __init__(self):
+        super().__init__()
+        self.n_qubits = 3
+        self.max_steps = 10
+        self.thetas = np.random.uniform(0.05, 0.5, 3).tolist()
+
+        # Each qubit can be at node 0, 1, 2, or 3 at each step
+        self.action_space = spaces.MultiDiscrete([4] * self.n_qubits)
+
+
+        # Observation space: qubit states + theta values
+        # Qubit states: (n_qubits * max_steps), Theta: (3,)
+        low = np.zeros(self.n_qubits * self.max_steps + 3)
+        high = np.concatenate([np.full(self.n_qubits * self.max_steps, 3), np.ones(3)])
+        self.observation_space = spaces.Box(low=low, high=high, dtype=np.float32)
+
+        self.reset()
+
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        self.thetas = np.random.uniform(0.05, 0.5, 3).tolist() 
+        self.state = np.zeros((self.n_qubits, self.max_steps), dtype=np.int32)
+        self.state=self.state.flatten()
+        self.current_step = 0
+        self.done = False
+        obs = np.concatenate([self.state, np.array(self.thetas, dtype=np.float32)]).astype(np.float32)
+        return obs, {}
+
+
+    def step(self, action):
+        # action: array of length 3, each in {0,1,2,3}
+        if self.done:
+            raise RuntimeError("Episode is done")
+
+        # Record the action for each qubit at this step
+        # Update the observation space
+        for q in range(self.n_qubits):
+            self.state[q * self.max_steps + self.current_step] = action[q]
+
+        self.current_step += 1
+
+        # If all qubits have been measured (0) or max_steps reached, episode is done
+        state_2d = self.state.reshape(self.n_qubits, self.max_steps)
+        all_measured = np.all(state_2d[:, self.current_step-1] == 0)
+
+        self.done = all_measured or self.current_step >= self.max_steps
+
+        reward_val = 0
+        
+        # The reward is only calculated at the end of the episode
+        if self.done:
+            # Convert state to list of lists for your reward function
+            node_lists = [list(state_2d[q]) for q in range(self.n_qubits)]
+            reward_val = qm1.reward(node_lists, self.thetas)
+        else:
+            reward_val = 0  # Or a step penalty if desired
+
+        self.state=self.state.flatten()
+        obs = np.concatenate([self.state, np.array(self.thetas, dtype=np.float32)]).astype(np.float32)
+
+        return obs.copy(), reward_val, self.done, False, {}
+
+    def render(self):
+        print("Step:", self.current_step)
+        print("State:\n", self.state)
+
+    def close(self):
+        pass

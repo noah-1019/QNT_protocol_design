@@ -7,4 +7,6 @@ stable-baselines3
 pandas
 optuna
 tensorboard
+qiskit
+qutip
 
